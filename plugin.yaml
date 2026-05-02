@@ -1,0 +1,10 @@
+name: cron-plus
+version: 0.1.0
+description: "Subprocess-per-job cron scheduler. Replacement for the in-process workdir-serializing built-in scheduler. Coexists with built-in cron via disjoint job storage at ~/.hermes/cron-plus/jobs.json."
+author: jalewis
+requires_env: []
+optional_env:
+  - CRON_PLUS_TICK_INTERVAL_S       # default 60
+  - CRON_PLUS_DISABLED              # set to disable the ticker entirely (useful during diagnostics)
+provides_tools: []
+provides_hooks: []
