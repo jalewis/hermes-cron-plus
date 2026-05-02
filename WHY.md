@@ -196,5 +196,5 @@ Probably **maybe** if:
 ## Related reading
 
 - The full upstream bug report (4 defects + reproduction steps + suggested fixes + test cases) is in this repo as [`docs/UPSTREAM_HERMES_CRON_BUG_REPORT.md`](./docs/UPSTREAM_HERMES_CRON_BUG_REPORT.md). It was drafted to be filed at NousResearch/hermes-agent but is not currently filed.
-- Hermes' [plugin developer guide](https://nousresearch.github.io/hermes-agent/) — the framework cron-plus is built against.
+- Hermes' [plugin developer guide](https://hermes-agent.nousresearch.com/docs/guides/build-a-hermes-plugin) — the framework cron-plus is built against.
 - [hermes-web-search-plus](https://github.com/robbyczgw-cla/hermes-web-search-plus) — the plugin we modeled this repo's distribution conventions on.
