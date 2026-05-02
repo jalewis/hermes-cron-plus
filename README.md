@@ -21,7 +21,7 @@ Hermes' built-in scheduler runs in-process and serializes all workdir-bearing jo
 
 cron-plus avoids all of this by spawning each due job as a separate Python subprocess. The ticker tick returns in <1 second regardless of how many or how long the spawned jobs run.
 
-This plugin was extracted from a real production deployment after an extended debugging session uncovered four interacting defects in the built-in scheduler. **If you're considering adopting cron-plus, read [`WHY.md`](./WHY.md) first** — it covers the production data, the full diagnostic timeline, the four underlying defects, why a plugin was the right fix vs upstream patches, and a "should you use this?" decision section. The companion document [`docs/docs/UPSTREAM_HERMES_CRON_BUG_REPORT.md`](./docs/docs/UPSTREAM_HERMES_CRON_BUG_REPORT.md) has the technical bug-report-shape detail (reproduction steps, line-numbered root causes, suggested upstream fixes, test cases) for anyone who'd rather drive the upstream fix than adopt a plugin.
+This plugin was extracted from a real production deployment after an extended debugging session uncovered four interacting defects in the built-in scheduler. **If you're considering adopting cron-plus, read [`WHY.md`](./WHY.md) first** — it covers the production data, the full diagnostic timeline, the four underlying defects, why a plugin was the right fix vs upstream patches, and a "should you use this?" decision section. The companion document [`docs/UPSTREAM_HERMES_CRON_BUG_REPORT.md`](./docs/UPSTREAM_HERMES_CRON_BUG_REPORT.md) has the technical bug-report-shape detail (reproduction steps, line-numbered root causes, suggested upstream fixes, test cases) for anyone who'd rather drive the upstream fix than adopt a plugin.
 
 ---
 
