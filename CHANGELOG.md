@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.1.1] — 2026-05-03
+
+### Fixed
+
+- **Inner ticker spawned inside runner subprocesses.** When `runner.py` boots Hermes' agent runtime, the plugin loader walks every enabled plugin and calls `register()`. cron-plus' `register()` would then start a fresh daemon ticker thread *inside* the short-lived runner subprocess. That inner ticker competed for the tick lock, logged noisy `cron-plus ticker started` lines on every fired job, and (under load) could claim and spawn additional due jobs as grand-children of the runner before it exited — observed in production: a source-quality-backfill subprocess spawned with PPID = active raw-backfill runner instead of the gateway. The PID-file idempotency check prevented double-execution but the process tree was wrong and the lock contention was real.
+- Fix: `_spawn_job_subprocess` now sets `CRON_PLUS_DISABLED=1` in the runner subprocess's env. The existing `_start_ticker_thread` short-circuit picks it up and skips spawning the redundant ticker. Regression test `test_spawn_disables_inner_ticker` asserts the env var is set on the Popen call.
+
 ## [v0.1.0] — 2026-05-02
 
 Initial release.

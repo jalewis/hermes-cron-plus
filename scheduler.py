@@ -320,6 +320,15 @@ def _spawn_job_subprocess(job: dict) -> subprocess.Popen | None:
     env["PYTHONPATH"] = (
         f"{plugin_dir}:{pythonpath}" if pythonpath else str(plugin_dir)
     )
+    # Suppress the inner ticker in the runner subprocess. When runner.py
+    # boots Hermes' agent runtime, the plugin loader walks every enabled
+    # plugin and calls register(), which would spawn a fresh daemon ticker
+    # inside this short-lived subprocess. That ticker would compete for the
+    # tick lock, log noisy "ticker started" lines, and (under load) could
+    # claim+spawn additional due jobs before the runner exits. The
+    # CRON_PLUS_DISABLED check in __init__.py:_start_ticker_thread() bails
+    # out early when this is set.
+    env["CRON_PLUS_DISABLED"] = "1"
     # The plugin dir contains "cron-plus" (with hyphen) — Python module names
     # can't have hyphens. Symlink trick: also expose as cron_plus via a
     # __init__.py shim. Simpler: invoke runner.py directly by path.

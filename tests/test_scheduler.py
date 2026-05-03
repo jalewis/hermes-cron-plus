@@ -252,6 +252,33 @@ def test_spawn_writes_pid_file(scheduler_module, jobs_module, monkeypatch):
     assert "started_at" in rec  # ISO 8601 timestamp
 
 
+def test_spawn_disables_inner_ticker(scheduler_module, jobs_module, monkeypatch):
+    """The runner subprocess must inherit CRON_PLUS_DISABLED=1 so that
+    when Hermes' plugin loader walks register() during agent runtime
+    init, _start_ticker_thread bails out instead of spawning a fresh
+    daemon ticker inside the short-lived runner process. Without this
+    guard, every fired job leaves an inner ticker that competes for the
+    tick lock, logs noisy 'ticker started' lines, and (under load) can
+    claim+spawn additional due jobs before the runner exits."""
+    j = jobs_module.create_job(
+        name="t", schedule={"kind": "interval", "interval_s": 60},
+    )
+    captured = {}
+    def fake_popen(cmd, *args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        proc = MagicMock()
+        proc.pid = 9999
+        return proc
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    scheduler_module._spawn_job_subprocess(j)
+    assert captured["env"] is not None
+    assert captured["env"].get("CRON_PLUS_DISABLED") == "1", (
+        "spawn must set CRON_PLUS_DISABLED=1 so the runner subprocess "
+        "doesn't start a redundant inner ticker"
+    )
+
+
 # ─── Ticker resilience ────────────────────────────────────────────────
 
 
