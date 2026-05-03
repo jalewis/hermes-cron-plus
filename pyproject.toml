@@ -1,12 +1,16 @@
-# cron-plus is primarily distributed by git-clone-as-plugin-directory
-# (matching the hermes-web-search-plus convention). This pyproject.toml
-# exists so:
-#   - dev contributors can `pip install -e ".[dev]"` for an isolated
-#     test environment that doesn't depend on a Hermes venv being mounted
-#   - `pytest` runs hermetically with all required deps
+# cron-plus supports two distribution paths:
+#   1. Drop-in directory plugin: `git clone` into ~/.hermes/plugins/cron-plus/
+#      and Hermes' plugin loader discovers it via plugin.yaml.
+#   2. Pip-installable: `pip install hermes-cron-plus`. Hermes auto-discovers
+#      via the [project.entry-points."hermes_agent.plugins"] entry below.
 #
-# It does NOT expose a Hermes plugin entry point — Hermes' plugin loader
-# discovers the plugin from ~/.hermes/plugins/cron-plus/ via plugin.yaml.
+# The package is exposed as `cron_plus` (underscore — hyphen isn't a valid
+# Python identifier). The Hermes plugin manifest name (cron-plus, with
+# hyphen) is unchanged; the entry-point key matches the manifest.
+#
+# Dev / test:
+#   pip install -e ".[dev]"
+#   pytest
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -45,11 +49,20 @@ Homepage = "https://github.com/jalewis/hermes-cron-plus"
 Issues = "https://github.com/jalewis/hermes-cron-plus/issues"
 Repository = "https://github.com/jalewis/hermes-cron-plus"
 
-# This package is not pip-distributable as a Hermes plugin — Hermes
-# discovers plugins from a directory layout, not entry points. The
-# package metadata above is for dev/test workflows only.
+[project.entry-points."hermes_agent.plugins"]
+cron-plus = "cron_plus"
+
+# The repository root IS the cron_plus package — flat layout. We map the
+# package name (with underscore) to the current directory so `import
+# cron_plus` works after `pip install`. plugin.yaml is bundled as
+# package-data so Hermes can find the manifest at runtime via
+# importlib.resources, regardless of install path.
 [tool.setuptools]
-py-modules = ["__init__", "scheduler", "jobs", "runner", "cli", "migrate"]
+packages = ["cron_plus"]
+package-dir = {"cron_plus" = "."}
+
+[tool.setuptools.package-data]
+"cron_plus" = ["plugin.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

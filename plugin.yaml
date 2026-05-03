@@ -3,8 +3,9 @@ version: 0.1.0
 description: "Subprocess-per-job cron scheduler. Replacement for the in-process workdir-serializing built-in scheduler. Coexists with built-in cron via disjoint job storage at ~/.hermes/cron-plus/jobs.json."
 author: jalewis
 requires_env: []
-optional_env:
-  - CRON_PLUS_TICK_INTERVAL_S       # default 60
-  - CRON_PLUS_DISABLED              # set to disable the ticker entirely (useful during diagnostics)
 provides_tools: []
 provides_hooks: []
+# Optional env vars (CRON_PLUS_TICK_INTERVAL_S, CRON_PLUS_DISABLED,
+# CRON_PLUS_LOG_LEVEL) are documented in README.md "Environment variables".
+# Hermes' plugin.yaml schema only defines `requires_env`; optional config
+# lives in the README rather than as a non-standard manifest field.
