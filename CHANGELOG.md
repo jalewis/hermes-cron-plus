@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.1.2] — 2026-05-03
+
+### Fixed
+
+- **`claim_due_jobs()` now self-heals null `next_run_at` on enabled jobs.** Sanitized deploys (typical disaster-recovery flow: snapshot live → strip runtime fields → write to source-of-truth → re-deploy a clean jobs.json) leave every enabled job with `next_run_at=null`. The original due-check inside `claim_due_jobs()` short-circuited on `if not nra: continue`, so jobs sat silent forever after a fresh deploy until something external (e.g. a `seed-cron-plus.py` workaround) wrote real timestamps. This was the same gotcha as the legacy Hermes built-in cron — fixing it here removes the need for any external seeder.
+- Fix: a Phase-1 self-heal pass runs at the top of `claim_due_jobs()`'s `locked_modify` callback. For every enabled job with null `next_run_at`, it computes `compute_next_run(schedule)` and writes the result. The freshly-computed timestamp is almost always in the future, so the just-healed job falls through Phase 2 (the actual due-check) unclaimed this tick — but is correctly picked up on the tick at-or-after the new `next_run_at`. Disabled jobs are intentionally left alone (their null `next_run_at` is by-design when paused).
+- `get_due_jobs()` deliberately does NOT heal (preserves its read-only contract). Docstring updated to call this out — callers using it for inspection will see an empty result for newly-deployed jobs until the first tick claim heals them. Use `claim_due_jobs()` if you need atomic heal-and-claim semantics.
+- Regression tests: `test_claim_due_jobs_self_heals_null_next_run`, `test_claim_due_jobs_does_not_heal_disabled_jobs`, `test_get_due_jobs_does_not_heal` in `tests/test_scheduler.py`.
+
 ## [v0.1.1] — 2026-05-03
 
 ### Fixed

@@ -307,3 +307,72 @@ def test_run_ticker_survives_tick_exceptions(scheduler_module, monkeypatch):
     # Should not propagate the RuntimeError; should sleep + retry
     scheduler_module.run_ticker(interval_s=1)
     assert call_count[0] >= 2, "ticker died after first tick exception"
+
+
+# ─── self-heal: null next_run_at on enabled jobs ──────────────────────
+
+
+def test_claim_due_jobs_self_heals_null_next_run(jobs_module):
+    """Regression: an enabled job with next_run_at=null (e.g. fresh
+    deploy from a sanitized jobs.json) should be self-healed by
+    claim_due_jobs() — the next_run_at recomputed from its schedule.
+
+    Pre-fix: jobs sat silent forever after a sanitized deploy until an
+    external workaround (seed-cron-plus.py) wrote next_run_at, because
+    both get_due_jobs() and the original claim loop short-circuit on
+    null nra. This test verifies the heal phase inside
+    claim_due_jobs() now populates the timestamp atomically.
+    """
+    job = jobs_module.create_job(
+        name="self-heal-target",
+        schedule={"kind": "interval", "interval_s": 3600},
+    )
+    # Force the null-nra state that a sanitized deploy produces
+    jobs_module.update_job(job["id"], {"next_run_at": None})
+    assert jobs_module.get_job(job["id"])["next_run_at"] is None
+
+    # Claim — heal phase should populate next_run_at even though the
+    # job is not yet "due" (the freshly-computed timestamp is in the
+    # future, so it's not in `claimed`).
+    claimed = jobs_module.claim_due_jobs()
+
+    healed = jobs_module.get_job(job["id"])
+    assert healed["next_run_at"] is not None, \
+        "claim_due_jobs() must self-heal null next_run_at on enabled jobs"
+    # Heal computes the next scheduled time, which is in the future, so
+    # the job should NOT have been claimed this tick.
+    assert all(c["id"] != job["id"] for c in claimed), \
+        "freshly-healed job should not be claimed in the same tick"
+
+
+def test_claim_due_jobs_does_not_heal_disabled_jobs(jobs_module):
+    """Disabled jobs with null next_run_at stay null — heal targets
+    only enabled jobs (paused jobs intentionally have null nra)."""
+    job = jobs_module.create_job(
+        name="paused-target",
+        schedule={"kind": "interval", "interval_s": 3600},
+    )
+    jobs_module.update_job(job["id"], {
+        "next_run_at": None,
+        "enabled": False,
+    })
+    jobs_module.claim_due_jobs()
+    assert jobs_module.get_job(job["id"])["next_run_at"] is None, \
+        "disabled jobs must not be self-healed"
+
+
+def test_get_due_jobs_does_not_heal(jobs_module):
+    """get_due_jobs() must remain read-only — it returns [] for
+    null-nra jobs and does NOT mutate the next_run_at field. Heal is
+    claim_due_jobs()'s job."""
+    job = jobs_module.create_job(
+        name="readonly-target",
+        schedule={"kind": "interval", "interval_s": 3600},
+    )
+    jobs_module.update_job(job["id"], {"next_run_at": None})
+
+    due = jobs_module.get_due_jobs()
+    assert all(d["id"] != job["id"] for d in due), \
+        "null-nra job should not appear in get_due_jobs() result"
+    assert jobs_module.get_job(job["id"])["next_run_at"] is None, \
+        "get_due_jobs() must NOT mutate next_run_at"

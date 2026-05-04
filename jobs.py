@@ -378,6 +378,14 @@ def get_due_jobs() -> list[dict]:
     Read-only — does NOT mutate job state. Use claim_due_jobs() instead
     if you intend to spawn the returned jobs (it advances next_run_at
     atomically as part of the claim).
+
+    Note: jobs with null `next_run_at` are skipped here (they're not
+    "in the past" — they're "no decision yet"). claim_due_jobs() heals
+    null entries as part of its lock-protected claim phase; this
+    function deliberately does not, to preserve its read-only contract.
+    Callers using this for inspection (e.g. CLI list output) will see
+    an empty result for newly-deployed jobs until the first tick claim
+    heals them — which is informational-only, not load-bearing.
     """
     now = _utc_now()
     due: list[dict] = []
@@ -411,6 +419,13 @@ def claim_due_jobs(is_running_check=None) -> list[dict]:
     `is_running_check(job_id) -> bool` is an optional callback used to
     skip jobs whose previous subprocess is still alive (idempotency).
 
+    Self-heals null `next_run_at` on enabled jobs as part of the same
+    lock acquisition (see comment inside `_do`). Without that heal, a
+    sanitized jobs.json (typical disaster-recovery deploy artifact —
+    runtime fields stripped) leaves every enabled job with
+    next_run_at=null and the original due-check below skipped them
+    forever.
+
     HIGH 1 fix.
     """
     now = _utc_now()
@@ -418,6 +433,39 @@ def claim_due_jobs(is_running_check=None) -> list[dict]:
 
     def _do(jobs: list[dict]):
         nonlocal claimed
+        # ── Phase 1: self-heal null next_run_at on enabled jobs ──────
+        # A freshly-deployed jobs.json from a sanitized source-of-truth
+        # has no runtime state — every enabled job arrives with
+        # next_run_at=null. The Phase-2 due-check below short-circuits
+        # those entries (`if not nra: continue`), so without this heal
+        # they sit silent forever until something pokes next_run_at to
+        # a real timestamp. This bug was the same as gotcha #11 in the
+        # legacy Hermes built-in cron and required external workaround
+        # scripts (e.g. seed-cron-plus.py) to recover from each deploy.
+        #
+        # The heal is cheap: compute_next_run() is pure-function over
+        # the schedule + now. We do it under the same exclusive lock as
+        # the claim itself so a concurrent tick can't see a half-healed
+        # state. The freshly-computed timestamp is almost always in the
+        # future (the *next* scheduled tick), so the just-healed job
+        # falls through Phase 2 unclaimed this tick — but is correctly
+        # picked up on the tick at-or-after the new next_run_at.
+        for job in jobs:
+            if not job.get("enabled", True):
+                continue
+            if job.get("next_run_at"):
+                continue
+            schedule = job.get("schedule") or {}
+            healed = compute_next_run(schedule)
+            if healed:
+                job["next_run_at"] = healed
+                logger.info(
+                    "cron-plus: self-healed null next_run_at for job "
+                    "'%s' (id=%s) → %s",
+                    job.get("name", job["id"]), job["id"], healed,
+                )
+
+        # ── Phase 2: claim due jobs ──────────────────────────────────
         for job in jobs:
             if not job.get("enabled", True):
                 continue

@@ -150,6 +150,32 @@ Migration preserves job IDs so any external references continue to work. The mig
 
 ---
 
+## Disaster recovery / re-deploys
+
+The `~/.hermes/cron-plus/jobs.json` file holds both job *definitions* (id, name, schedule, prompt, model, …) and *runtime* fields (`next_run_at`, `last_run_at`, `last_run_success`, `last_error`, `last_delivery_error`). For DR, sanitize the runtime fields out and keep the result under version control as your source-of-truth, then deploy by snapshot + copy:
+
+```bash
+# 1. Sanitize live → repo source-of-truth
+python -c "
+import json
+RUNTIME = {'next_run_at','last_run_at','last_run_success','last_error','last_delivery_error'}
+d = json.load(open('/home/.../jobs.json'))
+for j in d['jobs']:
+    for k in RUNTIME: j.pop(k, None)
+    if isinstance(j.get('repeat'), dict): j['repeat'].pop('completed', None)
+d['jobs'].sort(key=lambda j: j.get('name',''))
+json.dump(d, open('config/cron-plus-jobs.json','w'), indent=2)
+"
+
+# 2. Restore: snapshot + copy
+cp -p ~/.hermes/cron-plus/jobs.json ~/.hermes/cron-plus/jobs.json.bak.$(date +%s)
+cp -p config/cron-plus-jobs.json ~/.hermes/cron-plus/jobs.json
+```
+
+**As of v0.1.2, no extra seed step is required.** The next scheduler tick (~60s) calls `claim_due_jobs()`, which detects every enabled job's null `next_run_at` and self-heals it from the schedule under the same exclusive lock as the claim itself. Pre-v0.1.2 deploys had to run an external `seed-cron-plus.py` workaround inside the gateway container or jobs would sit silent forever — see CHANGELOG for the gory details.
+
+---
+
 ## Built-in vs cron-plus
 
 | Aspect | Built-in (`hermes cron`) | cron-plus |

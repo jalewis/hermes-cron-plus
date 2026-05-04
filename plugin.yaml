@@ -1,5 +1,5 @@
 name: cron-plus
-version: 0.1.0
+version: 0.1.2
 description: "Subprocess-per-job cron scheduler. Replacement for the in-process workdir-serializing built-in scheduler. Coexists with built-in cron via disjoint job storage at ~/.hermes/cron-plus/jobs.json."
 author: jalewis
 requires_env: []
