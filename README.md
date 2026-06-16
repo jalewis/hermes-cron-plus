@@ -119,7 +119,7 @@ Schedule arg accepts:
 - Interval shorthand: `30s`, `30m`, `2h`, `1d`
 - One-shot: `once:<ISO 8601 timestamp>` (auto-disables after firing)
 
-Add `--jitter <seconds>` to spread the fire time of identically-scheduled jobs: each fire is delayed by a random `0..N` seconds (cron/interval kinds), so many deployments sharing one schedule don't stampede a shared resource. In a declarative `jobs.json`, set `"jitter_s": <seconds>` on the schedule dict directly.
+Add `--jitter <seconds>` to spread the fire time of identically-scheduled jobs: each fire is delayed by a random `0..N` seconds (cron/interval kinds), so many deployments sharing one schedule don't stampede a shared resource. In a declarative `jobs.json`, set `"jitter_s": <seconds>` on the schedule dict directly. Keep `jitter_s` well under the schedule's interval — a value near the interval can push a fire past the next boundary and skip a run.
 
 Most projects shell into a Docker container or wrap the call in a project script — see the migration section for examples.
 
