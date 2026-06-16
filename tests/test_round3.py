@@ -183,3 +183,32 @@ def test_cli_renders_delivery_failed_correctly(temp_hermes_home):
     assert "delivered failed" not in out, (
         "CLI still has the 'delivered failed' typo"
     )
+
+
+def test_cli_create_jitter_sets_schedule_field(temp_hermes_home):
+    """`cron-plus create ... --jitter N` records jitter_s on the schedule."""
+    import io
+    import contextlib
+    import argparse
+    import jobs as jobs_mod
+    import cli
+
+    ns = argparse.Namespace(
+        schedule="0 */2 * * *", name="jit", workdir=None, prompt="x",
+        script=None, jitter=600, deliver="local",
+    )
+    with contextlib.redirect_stdout(io.StringIO()):
+        rc = cli._cmd_create(ns)
+    assert rc == 0
+    job = next(j for j in jobs_mod.load_jobs() if j["name"] == "jit")
+    assert job["schedule"].get("jitter_s") == 600
+
+    # --jitter 0 (default) must not add the field
+    ns0 = argparse.Namespace(
+        schedule="0 */2 * * *", name="nojit", workdir=None, prompt="x",
+        script=None, jitter=0, deliver="local",
+    )
+    with contextlib.redirect_stdout(io.StringIO()):
+        cli._cmd_create(ns0)
+    job0 = next(j for j in jobs_mod.load_jobs() if j["name"] == "nojit")
+    assert "jitter_s" not in job0["schedule"]

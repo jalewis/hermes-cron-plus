@@ -174,6 +174,9 @@ def _cmd_create(args: argparse.Namespace) -> int:
         print("  Examples: '0 10 * * 0' (cron), '30m' (interval), 'once:2026-05-03T18:00:00+00:00'", file=sys.stderr)
         return 2
 
+    if args.jitter and args.jitter > 0:
+        schedule["jitter_s"] = args.jitter
+
     job = jobs_mod.create_job(
         name=args.name,
         schedule=schedule,
@@ -225,6 +228,11 @@ def _setup_argparse(subparser: argparse.ArgumentParser) -> None:
     p_create.add_argument("--workdir", default=None)
     p_create.add_argument("--prompt", default=None)
     p_create.add_argument("--script", default=None)
+    p_create.add_argument(
+        "--jitter", type=int, default=0, metavar="SECONDS",
+        help="Randomly delay each fire by 0..SECONDS to desync identical "
+             "schedules (cron/interval kinds).",
+    )
     p_create.add_argument(
         "--deliver", default="local",
         help="Delivery target(s). Examples: 'local', 'telegram', "

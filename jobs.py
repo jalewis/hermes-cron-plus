@@ -15,6 +15,7 @@ import fcntl
 import json
 import logging
 import os
+import random
 import secrets
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -150,6 +151,22 @@ def locked_modify(fn):
 # ─── Schedule eval ────────────────────────────────────────────────────
 
 
+def _apply_jitter(dt: datetime, schedule: dict) -> datetime:
+    """Add a random 0..jitter_s second offset to a computed fire time.
+
+    Lets a fleet of identically-scheduled jobs (e.g. many clones of a domain
+    pack sharing one cron expr) desynchronize instead of all firing at the same
+    instant. ``jitter_s`` absent or <= 0 leaves the time unchanged (back-compat).
+    """
+    try:
+        jitter_s = int(schedule.get("jitter_s", 0) or 0)
+    except (TypeError, ValueError):
+        return dt
+    if jitter_s <= 0:
+        return dt
+    return dt + timedelta(seconds=random.uniform(0, jitter_s))
+
+
 def compute_next_run(
     schedule: dict,
     *,
@@ -189,7 +206,8 @@ def compute_next_run(
                 pass  # fall back to anchor
         try:
             it = croniter(expr, cron_base)
-            return it.get_next(datetime).astimezone(timezone.utc).isoformat()
+            nxt = it.get_next(datetime).astimezone(timezone.utc)
+            return _apply_jitter(nxt, schedule).isoformat()
         except Exception as e:
             logger.error("cron-plus: invalid cron expr %r: %s", expr, e)
             return None
@@ -201,7 +219,8 @@ def compute_next_run(
             return None
         if interval_s <= 0:
             return None
-        return (anchor + timedelta(seconds=interval_s)).isoformat()
+        nxt = anchor + timedelta(seconds=interval_s)
+        return _apply_jitter(nxt, schedule).isoformat()
 
     if kind == "once":
         run_at = schedule.get("run_at")

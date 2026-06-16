@@ -119,6 +119,8 @@ Schedule arg accepts:
 - Interval shorthand: `30s`, `30m`, `2h`, `1d`
 - One-shot: `once:<ISO 8601 timestamp>` (auto-disables after firing)
 
+Add `--jitter <seconds>` to spread the fire time of identically-scheduled jobs: each fire is delayed by a random `0..N` seconds (cron/interval kinds), so many deployments sharing one schedule don't stampede a shared resource. In a declarative `jobs.json`, set `"jitter_s": <seconds>` on the schedule dict directly.
+
 Most projects shell into a Docker container or wrap the call in a project script — see the migration section for examples.
 
 ---
@@ -510,7 +512,7 @@ Pass criteria:
 
 Issues and PRs welcome. The main areas needing work:
 
-- **End-to-end CI test against a real Hermes** — current 60-test suite covers `jobs.py`, `scheduler.py`, the migration script, and a battery of regression cases, but doesn't exercise the full subprocess→Hermes-runtime→delivery path automatically. The manual procedure in [Smoke test](#smoke-test-manual-end-to-end) covers it; landing a containerized integration test in CI would let us advance the PyPI Development Status classifier with confidence
+- **End-to-end CI test against a real Hermes** — current 70-test suite covers `jobs.py`, `scheduler.py`, the migration script, and a battery of regression cases, but doesn't exercise the full subprocess→Hermes-runtime→delivery path automatically. The manual procedure in [Smoke test](#smoke-test-manual-end-to-end) covers it; landing a containerized integration test in CI would let us advance the PyPI Development Status classifier with confidence
 - **CLI command parity** — `edit`, `tail` (follow latest log), `output` (cat the most recent agent output) would all be useful additions
 - **PyPI packaging** — need a `pyproject.toml` with the right entry points so `pip install hermes-cron-plus` works
 - **Job-import format** — a YAML schema so jobs can be defined declaratively and imported via `cron-plus import jobs.yml` instead of one `create` per job

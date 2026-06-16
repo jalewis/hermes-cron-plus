@@ -355,3 +355,62 @@ def test_load_jobs_handles_missing_file(jobs_module):
     jobs_module.JOBS_FILE.unlink(missing_ok=True)
     assert jobs_module.load_jobs() == []
     assert jobs_module.JOBS_FILE.exists()
+
+
+# ─── compute_next_run: schedule jitter (hermes-cron-plus#1) ────────────
+
+_FIXED_ANCHOR = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+
+
+def test_compute_next_run_cron_jitter_within_window(jobs_module):
+    """A jittered cron fire lands within [base, base + jitter_s]."""
+    _require_croniter()
+    expr = "0 */2 * * *"
+    base = jobs_module.compute_next_run({"kind": "cron", "expr": expr}, anchor=_FIXED_ANCHOR)
+    jit = jobs_module.compute_next_run(
+        {"kind": "cron", "expr": expr, "jitter_s": 600}, anchor=_FIXED_ANCHOR
+    )
+    base_dt = datetime.fromisoformat(base)
+    jit_dt = datetime.fromisoformat(jit)
+    assert base_dt <= jit_dt <= base_dt + timedelta(seconds=600)
+
+
+def test_compute_next_run_interval_jitter_within_window(jobs_module):
+    """A jittered interval fire lands within [base, base + jitter_s]."""
+    jit = jobs_module.compute_next_run(
+        {"kind": "interval", "interval_s": 3600, "jitter_s": 300}, anchor=_FIXED_ANCHOR
+    )
+    lo = _FIXED_ANCHOR + timedelta(seconds=3600)
+    jit_dt = datetime.fromisoformat(jit)
+    assert lo <= jit_dt <= lo + timedelta(seconds=300)
+
+
+def test_compute_next_run_jitter_zero_or_absent_is_noop(jobs_module):
+    """jitter_s of 0 (or absent) must not change the computed fire time."""
+    _require_croniter()
+    expr = "0 */2 * * *"
+    base = jobs_module.compute_next_run({"kind": "cron", "expr": expr}, anchor=_FIXED_ANCHOR)
+    assert jobs_module.compute_next_run(
+        {"kind": "cron", "expr": expr, "jitter_s": 0}, anchor=_FIXED_ANCHOR
+    ) == base
+
+
+def test_compute_next_run_jitter_actually_spreads(jobs_module):
+    """Repeated computation with jitter yields more than one distinct fire time."""
+    _require_croniter()
+    sched = {"kind": "cron", "expr": "0 */2 * * *", "jitter_s": 3600}
+    results = {jobs_module.compute_next_run(sched, anchor=_FIXED_ANCHOR) for _ in range(20)}
+    assert len(results) > 1
+
+
+def test_compute_next_run_jitter_invalid_or_negative_ignored(jobs_module):
+    """Non-numeric or negative jitter_s is treated as no jitter (not an error)."""
+    _require_croniter()
+    expr = "0 */2 * * *"
+    base = jobs_module.compute_next_run({"kind": "cron", "expr": expr}, anchor=_FIXED_ANCHOR)
+    assert jobs_module.compute_next_run(
+        {"kind": "cron", "expr": expr, "jitter_s": "nope"}, anchor=_FIXED_ANCHOR
+    ) == base
+    assert jobs_module.compute_next_run(
+        {"kind": "cron", "expr": expr, "jitter_s": -5}, anchor=_FIXED_ANCHOR
+    ) == base

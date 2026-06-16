@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Schedule jitter (`jitter_s`).** Optional integer field on a schedule dict (and a `create --jitter <seconds>` CLI flag). When set, `compute_next_run()` delays each computed fire time by a random `0..jitter_s` seconds for `cron` and `interval` schedules, so a fleet of identically-scheduled jobs (e.g. many clones of a domain pack sharing one cron expr) desynchronize instead of all firing at the same instant. Absent / `0` / negative / non-numeric values leave timing unchanged (fully backward compatible); `once` schedules are never jittered. Resolves hermes-cron-plus#1.
+
 ## [v0.1.2] — 2026-05-03
 
 ### Fixed
