@@ -45,6 +45,32 @@ def test_compute_next_run_cron(jobs_module):
     assert parsed == datetime(2026, 5, 3, 10, 0, tzinfo=timezone.utc)
 
 
+def test_compute_next_run_honors_cron_tz(jobs_module, monkeypatch):
+    """CRON_TZ interprets cron fields as LOCAL wall-clock (DST-aware); storage stays UTC."""
+    _require_croniter()
+    sched = {"kind": "cron", "expr": "30 13 * * *"}                 # daily 13:30 local
+    summer = datetime(2026, 6, 30, 6, 0, tzinfo=timezone.utc)
+    winter = datetime(2026, 1, 15, 6, 0, tzinfo=timezone.utc)
+    # default (no env) — UTC, the engine zero-config default
+    monkeypatch.delenv("CRON_TZ", raising=False)
+    monkeypatch.delenv("TZ", raising=False)
+    assert jobs_module.compute_next_run(sched, anchor=summer) == "2026-06-30T13:30:00+00:00"
+    # America/New_York in summer: 13:30 EDT (-04:00) = 17:30 UTC
+    monkeypatch.setenv("CRON_TZ", "America/New_York")
+    assert jobs_module.compute_next_run(sched, anchor=summer) == "2026-06-30T17:30:00+00:00"
+    # same expr in winter: 13:30 EST (-05:00) = 18:30 UTC — DST tracked automatically
+    assert jobs_module.compute_next_run(sched, anchor=winter) == "2026-01-15T18:30:00+00:00"
+
+
+def test_compute_next_run_unknown_tz_falls_back_utc(jobs_module, monkeypatch):
+    """An unparseable CRON_TZ degrades to UTC — never crashes the scheduler."""
+    _require_croniter()
+    monkeypatch.setenv("CRON_TZ", "Mars/Olympus_Mons")
+    anchor = datetime(2026, 6, 30, 6, 0, tzinfo=timezone.utc)
+    assert jobs_module.compute_next_run(
+        {"kind": "cron", "expr": "30 13 * * *"}, anchor=anchor) == "2026-06-30T13:30:00+00:00"
+
+
 def test_compute_next_run_interval(jobs_module):
     """Interval yields anchor + interval_s."""
     anchor = datetime(2026, 5, 2, 12, 0, tzinfo=timezone.utc)

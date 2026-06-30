@@ -4,7 +4,8 @@ Stores jobs at ~/.hermes/cron-plus/jobs.json. Disjoint from Hermes'
 built-in cron at ~/.hermes/cron/jobs.json so both can coexist.
 
 Schedule kinds:
-- cron:     {"kind": "cron", "expr": "0 10 * * 0"}  — 5-field cron, UTC
+- cron:     {"kind": "cron", "expr": "0 10 * * 0"}  — 5-field cron; fields are interpreted in
+            CRON_TZ (or the container TZ), default UTC. next_run_at is always stored in UTC.
 - interval: {"kind": "interval", "interval_s": 600} — every N seconds
 - once:     {"kind": "once", "run_at": "2026-05-03T18:00:00+00:00"}
             — fires once at the given UTC timestamp, then auto-disables
@@ -20,6 +21,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,22 @@ except ImportError:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _scheduling_tz():
+    """Timezone the cron *fields* are interpreted in. Default UTC; a deployment sets CRON_TZ
+    (or the container TZ) — e.g. ``America/New_York`` — so ``30 13 * * *`` means 13:30 LOCAL,
+    not 13:30 UTC. zoneinfo-backed, so the offset tracks DST automatically (EDT vs EST). Unknown
+    name -> UTC with a warning. Read per-call (cheap; zoneinfo caches) so a restart picks up a
+    changed env without code reload."""
+    name = os.environ.get("CRON_TZ") or os.environ.get("TZ") or "UTC"
+    if name in ("", "UTC", "Etc/UTC"):
+        return timezone.utc
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        logger.warning("cron-plus: unknown CRON_TZ/TZ %r (%s); cron schedules stay UTC", name, e)
+        return timezone.utc
 
 
 def _ensure_jobs_file() -> None:
@@ -188,7 +206,10 @@ def compute_next_run(
             except ValueError:
                 pass  # fall back to anchor
         try:
-            it = croniter(expr, cron_base)
+            # Interpret the cron fields in the configured scheduling TZ (DST-aware): express the
+            # base there so croniter matches wall-clock-in-TZ, then normalize the result to UTC for
+            # storage. With CRON_TZ unset this is a no-op (base already UTC) — UTC stays the default.
+            it = croniter(expr, cron_base.astimezone(_scheduling_tz()))
             return it.get_next(datetime).astimezone(timezone.utc).isoformat()
         except Exception as e:
             logger.error("cron-plus: invalid cron expr %r: %s", expr, e)
