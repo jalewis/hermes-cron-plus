@@ -86,7 +86,9 @@ def _write_pid_record(job_id: str, pid: int) -> None:
     Backward-compatible: legacy bare-int pidfiles are still readable.
     """
     rec = {"pid": pid, "started_at": _utc_now().isoformat()}
-    _job_pid_file(job_id).write_text(json.dumps(rec))
+    p = _job_pid_file(job_id)
+    p.write_text(json.dumps(rec))
+    jobs_mod._preserve_owner(p)              # pidfiles share the root-`docker exec` exposure (#197)
 
 
 def _read_pid_record(job_id: str) -> tuple[int | None, datetime | None]:

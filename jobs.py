@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
 CRON_PLUS_HOME = HERMES_HOME / "cron-plus"
+# okengine#197: machine-readable marker that the scheduler cannot load its job store — monitors
+# (deployment-validate / health_export) turn this into a RED signal instead of silence.
+STALLED_SENTINEL = CRON_PLUS_HOME / ".scheduler-stalled"
 JOBS_FILE = CRON_PLUS_HOME / "jobs.json"
 
 # croniter is part of the Hermes venv (the built-in scheduler uses it).
@@ -58,10 +61,58 @@ def _scheduling_tz():
         return timezone.utc
 
 
+def _service_owner(prior: "tuple[int, int] | None" = None) -> "tuple[int, int] | None":
+    """The uid:gid the scheduler service runs as (okengine#197). HERMES_UID/HERMES_GID env wins;
+    else the pre-write file owner the caller captured; else the store dir's owner. A ROOT owner is
+    the poison, never the cure — root references are ignored. None -> unknown, leave ownership."""
+    try:
+        uid = int(os.environ["HERMES_UID"])
+        gid = int(os.environ.get("HERMES_GID", uid))
+        return (uid, gid)
+    except (KeyError, ValueError):
+        pass
+    if prior and prior[0] != 0:
+        return prior
+    try:
+        st = os.stat(CRON_PLUS_HOME)
+        if st.st_uid != 0:
+            return (st.st_uid, st.st_gid)
+    except OSError:
+        pass
+    return None
+
+
+def _preserve_owner(path, prior: "tuple[int, int] | None" = None) -> None:
+    """okengine#197: `docker exec` enters the gateway as ROOT (the s6 privilege drop applies to the
+    service, not exec sessions), so any admin/debug mutation that rewrites the job store re-owns
+    the new inode root:root — after which the uid-service scheduler can't read it and every lane
+    silently stops (a 44-minute live all-lane outage found only by manual inspection). When the
+    WRITER is root, chown the file back to the service owner; a non-root writer already owns its
+    file, so this is a no-op there. Self-heals every write regardless of who runs it."""
+    if os.geteuid() != 0:
+        return
+    own = _service_owner(prior)
+    if own is None:
+        return
+    try:
+        os.chown(path, own[0], own[1])
+    except OSError:
+        pass
+
+
+def _prior_owner(path) -> "tuple[int, int] | None":
+    try:
+        st = os.stat(path)
+        return (st.st_uid, st.st_gid)
+    except OSError:
+        return None
+
+
 def _ensure_jobs_file() -> None:
     CRON_PLUS_HOME.mkdir(parents=True, exist_ok=True)
     if not JOBS_FILE.exists():
         JOBS_FILE.write_text(json.dumps({"jobs": []}, indent=2) + "\n")
+        _preserve_owner(JOBS_FILE)
 
 
 def _new_id() -> str:
@@ -79,8 +130,23 @@ def load_jobs() -> list[dict]:
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
     except (OSError, json.JSONDecodeError) as e:
-        logger.error("cron-plus: failed to load %s: %s", JOBS_FILE, e)
+        # okengine#197: an unreadable store previously logged once and returned [] — the ticker
+        # then saw "no jobs due" forever and the outage was invisible. Scream, and drop a
+        # machine-readable sentinel monitors turn RED (deployment-validate / health_export).
+        logger.error("cron-plus: SCHEDULER STALLED — cannot load %s (%s); NO JOBS WILL FIRE "
+                     "until this is fixed (typical cause: a root `docker exec` rewrote the store "
+                     "— chown it back to the service uid)", JOBS_FILE, e)
+        try:
+            STALLED_SENTINEL.write_text(json.dumps(
+                {"error": str(e), "file": str(JOBS_FILE),
+                 "at": datetime.now(timezone.utc).isoformat()}) + "\n")
+        except OSError:
+            pass
         return []
+    try:
+        STALLED_SENTINEL.unlink()            # store readable again -> clear the alarm
+    except OSError:
+        pass
     return list(data.get("jobs", []))
 
 
@@ -115,7 +181,9 @@ def _write_jobs_atomic(jobs: list[dict]) -> None:
         tmp.flush()
         os.fsync(tmp.fileno())
         tmp.close()
+        prior = _prior_owner(JOBS_FILE)      # capture BEFORE the new (writer-owned) inode lands
         os.replace(tmp.name, str(JOBS_FILE))
+        _preserve_owner(JOBS_FILE, prior)    # a root writer re-owns to the service uid (#197)
     except Exception:
         try:
             os.unlink(tmp.name)
