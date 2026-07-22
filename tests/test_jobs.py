@@ -62,6 +62,23 @@ def test_compute_next_run_honors_cron_tz(jobs_module, monkeypatch):
     assert jobs_module.compute_next_run(sched, anchor=winter) == "2026-01-15T18:30:00+00:00"
 
 
+def test_compute_next_run_dst_fallback_does_not_double_fire(jobs_module, monkeypatch):
+    """DST fall-back must not re-fire a slot. When clocks fall back (02:00 EDT -> 01:00 EST) the
+    01:00 wall-clock hour occurs twice; a range/step hour expr whose set includes it (`0 1-23/2 * * *`)
+    would otherwise fire at 01:00 EDT and AGAIN at 01:00 EST. After a fire at 01:00 EDT the next run
+    must skip the fold repeat and land on 03:00 EST. Unfixed, croniter returned the 01:00 EST repeat."""
+    _require_croniter()
+    monkeypatch.setenv("CRON_TZ", "America/New_York")
+    fired_at = "2025-11-02T05:00:00+00:00"                       # 01:00 EDT, the fall-back night
+    nxt = jobs_module.compute_next_run(
+        {"kind": "cron", "expr": "0 1-23/2 * * *"}, last_run_at=fired_at)
+    assert nxt == "2025-11-02T08:00:00+00:00", nxt              # 03:00 EST, NOT the 06:00Z (01:00 EST) repeat
+    # A non-fold daily slot is unaffected: 01:00 EDT -> 01:00 EDT the next day.
+    n2 = jobs_module.compute_next_run(
+        {"kind": "cron", "expr": "0 1 * * *"}, last_run_at="2025-06-01T05:00:00+00:00")
+    assert n2 == "2025-06-02T05:00:00+00:00", n2
+
+
 def test_compute_next_run_unknown_tz_falls_back_utc(jobs_module, monkeypatch):
     """An unparseable CRON_TZ degrades to UTC — never crashes the scheduler."""
     _require_croniter()

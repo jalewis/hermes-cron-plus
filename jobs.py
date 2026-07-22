@@ -277,8 +277,20 @@ def compute_next_run(
             # Interpret the cron fields in the configured scheduling TZ (DST-aware): express the
             # base there so croniter matches wall-clock-in-TZ, then normalize the result to UTC for
             # storage. With CRON_TZ unset this is a no-op (base already UTC) — UTC stays the default.
-            it = croniter(expr, cron_base.astimezone(_scheduling_tz()))
-            return it.get_next(datetime).astimezone(timezone.utc).isoformat()
+            base_local = cron_base.astimezone(_scheduling_tz())
+            it = croniter(expr, base_local)
+            nxt_local = it.get_next(datetime)
+            # DST fall-back guard: when clocks fall back, a wall-clock hour repeats, so croniter can
+            # return the SAME local H:M on the SAME day one UTC-hour later — firing the slot a second
+            # time. Observed for range/step hour exprs (e.g. `0 1-23/2 * * *`), where the repeated
+            # hour is in the set: a job that just fired at 01:00 EDT would re-fire at 01:00 EST.
+            # Detect that exact shape (same date + wall-clock as the base, but a different UTC offset —
+            # the fold) and advance past the duplicate. No-op when CRON_TZ is unset (UTC has no DST).
+            if (nxt_local.date() == base_local.date()
+                    and (nxt_local.hour, nxt_local.minute) == (base_local.hour, base_local.minute)
+                    and nxt_local.utcoffset() != base_local.utcoffset()):
+                nxt_local = it.get_next(datetime)
+            return nxt_local.astimezone(timezone.utc).isoformat()
         except Exception as e:
             logger.error("cron-plus: invalid cron expr %r: %s", expr, e)
             return None
