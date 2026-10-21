@@ -73,6 +73,28 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _apply_job_env(job: dict) -> None:
+    """Apply a job's declarative environment inside this isolated runner.
+
+    The scheduler starts one runner subprocess per job, so these values cannot
+    leak into another concurrent job.  Reject malformed mappings loudly instead
+    of passing surprising objects or invalid names to extension code.
+    """
+    env = job.get("env")
+    if env is None:
+        return
+    if not isinstance(env, dict):
+        raise ValueError("job env must be an object")
+    for key, value in env.items():
+        if not isinstance(key, str) or not key or not key.replace("_", "A").isalnum():
+            raise ValueError(f"invalid job env name: {key!r}")
+        if isinstance(value, (dict, list, tuple, set)):
+            raise ValueError(f"job env value for {key} must be scalar")
+        if value is None:
+            value = ""
+        os.environ.setdefault(key, str(value))
+
+
 def _write_pid_file(job_id: str) -> Path:
     """Record this runner's PID + start time so scheduler.py's
     `_job_is_running` can detect PID reuse on the next tick.
@@ -146,6 +168,13 @@ def main() -> int:
         job = jobs_mod.get_job(args.job_id)
         if not job:
             logger.error("job not found: %s", args.job_id)
+            return 2
+
+        try:
+            _apply_job_env(job)
+        except ValueError as e:
+            logger.error("invalid job environment: %s", e)
+            jobs_mod.mark_job_run(args.job_id, success=False, error=str(e))
             return 2
 
         job_name = job.get("name", args.job_id)
