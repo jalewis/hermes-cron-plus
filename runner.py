@@ -63,6 +63,8 @@ import run_receipts  # type: ignore[import]  # noqa: E402
 import model_slots  # type: ignore[import]  # noqa: E402
 import run_timeout  # type: ignore[import]  # noqa: E402
 import pid_ownership  # type: ignore[import]  # noqa: E402
+import run_records  # type: ignore[import]  # noqa: E402
+import artifact_records  # type: ignore[import]  # noqa: E402
 
 logging.basicConfig(
     level=os.environ.get("CRON_PLUS_LOG_LEVEL", "INFO").upper(),
@@ -243,6 +245,13 @@ def main() -> int:
         if not job:
             logger.error("job not found: %s", args.job_id)
             return 2
+        try:
+            run_record_path = run_records.begin_run_record(
+                jobs_mod.CRON_PLUS_HOME, job, started_at
+            )
+        except Exception as exc:
+            run_record_path = None
+            logger.error("could not persist runner start record: %s", exc)
 
         try:
             _apply_job_env(job)
@@ -279,6 +288,17 @@ def main() -> int:
 
         if not success:
             logger.error("agent run failed: %s", error or "(no error message)")
+            jobs_mod.mark_job_run(args.job_id, success=False, error=error)
+            return 1
+
+        try:
+            response, artifacts = artifact_records.collect(
+                job, response, jobs_mod.CRON_PLUS_HOME
+            )
+            job["_okengine_artifacts"] = artifacts
+        except artifact_records.ArtifactError as exc:
+            error = f"invalid deterministic artifact record: {exc}"
+            logger.error(error)
             jobs_mod.mark_job_run(args.job_id, success=False, error=error)
             return 1
 
@@ -342,6 +362,14 @@ def main() -> int:
         )
         return 0
     finally:
+        if "job" in locals() and isinstance(job, dict):
+            try:
+                if run_record_path is not None:
+                    run_records.finish_run_record(
+                        run_record_path, job, jobs_mod.get_job(args.job_id)
+                    )
+            except Exception as exc:
+                logger.error("could not persist runner-owned run record: %s", exc)
         pid_ownership.remove_if_owned(pid_file, os.getpid(), logger)
 
 
