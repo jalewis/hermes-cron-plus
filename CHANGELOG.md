@@ -1,5 +1,27 @@
 # Changelog
 
+## [v0.2.0] — 2026-10-21
+
+Folds in the changes OKEngine had been carrying as patches on top of v0.1.2. Requires Python 3.11 or later. Tested with Hermes-Agent v2026.9.14, which OKEngine v0.15.x runs this exact code on.
+
+### Added
+
+- **Per-job `env`.** A job's `env` mapping is applied inside the runner subprocess before the wake-gate or the agent starts.
+- **`after:` ordering.** A due job waits until every upstream it lists has a fresh successful completion (`after_ordering.py`).
+- **Run receipts.** A model-authored job with `completion: run` must make at least one governed write during the run, which the runner reads back before it reports success. `required_write_path` (with `{date}` from the UTC run date) pins a predictable publication. `model_slots.py` and `run_timeout.py` bound model concurrency and run time (`run_receipts.py`).
+- **Run records and artifact contracts.** Every runner invocation writes a durable record. A deterministic job may declare an `artifact_contract` and print one `OKENGINE_ARTIFACT:` JSON line per output; the runner strips those lines, confines paths to the mounted roots, verifies each file and any reported digest, and fails an otherwise clean exit when `min_artifacts` outputs are missing (`run_records.py`, `artifact_records.py`).
+- **Run deadline.** The runner exports the run's deadline to the job.
+- **Slug identity guard.** A separator- or case-equivalent page that a `no_agent` run created is quarantined. It fails the job only when the page is attributed to it (`slug_identity_guard.py`).
+- **CI.** GitHub Actions runs the suite on Python 3.11, 3.12 and 3.13.
+
+### Fixed
+
+- **DST fall-back fold.** In the repeated hour, a slot whose expression names its hour (`30 1 * * *`) fires once and a star-hour slot (`12 * * * *`) fires in both passes, as in Vixie cron and cronie. The previous guard compared against the claim time, so a late claim re-fired a daily 01:xx slot while hourly jobs lost their second pass (`dst_fold.py`).
+- **Orphaned runs.** Every tick closes a lane's newest `running` record whose worker is gone, instead of waiting for that lane's next start.
+- **PID ownership.** A finishing runner removes only its own PID record, so it cannot reopen the overlap window for a newer runner of the same job (`pid_ownership.py`).
+- **Job-store lock.** The flock moved from `jobs.json`, which every save replaces, to a `jobs.json.lock` sidecar that is never replaced.
+- **`cron-plus run`** no longer crashes on a job whose `next_run_at` is null.
+
 ## [v0.1.2] — 2026-05-03
 
 ### Fixed
