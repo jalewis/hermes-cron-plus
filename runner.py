@@ -62,6 +62,7 @@ import jobs as jobs_mod  # type: ignore[import]  # noqa: E402
 import run_receipts  # type: ignore[import]  # noqa: E402
 import model_slots  # type: ignore[import]  # noqa: E402
 import run_timeout  # type: ignore[import]  # noqa: E402
+import pid_ownership  # type: ignore[import]  # noqa: E402
 
 logging.basicConfig(
     level=os.environ.get("CRON_PLUS_LOG_LEVEL", "INFO").upper(),
@@ -341,10 +342,7 @@ def main() -> int:
         )
         return 0
     finally:
-        try:
-            pid_file.unlink()
-        except OSError:
-            pass
+        pid_ownership.remove_if_owned(pid_file, os.getpid(), logger)
 
 
 if __name__ == "__main__":
