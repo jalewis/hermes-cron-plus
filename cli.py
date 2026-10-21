@@ -107,7 +107,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Job not found: {args.job_id}", file=sys.stderr)
         return 1
     print(f"Triggered: {j.get('name', args.job_id)} (id={j['id']})")
-    print(f"  next_run_at: {j['next_run_at']}")
+    next_run_at = j.get("next_run_at")
+    if next_run_at is None:
+        print("  next_run_at: pending scheduler reconciliation")
+    else:
+        print(f"  next_run_at: {next_run_at}")
     print(f"  Will fire on the next ticker pass (within ~60s).")
     return 0
 
